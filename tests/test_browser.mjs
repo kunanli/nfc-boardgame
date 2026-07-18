@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 const require = createRequire("/opt/node22/lib/node_modules/");
 const { chromium } = require("/opt/node22/lib/node_modules/playwright");
 
-const html = readFileSync(new URL("../docs/index.html", import.meta.url), "utf8");
+const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const server = createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);

@@ -54,8 +54,8 @@ nfc-boardgame/
 │   └── engine.py       # 規則引擎 / 裁判，單一入口 Game.tap(uid)
 ├── server.py           # 服務端：純標準庫 HTTP，模擬讀卡機送 UID
 ├── demo.py             # 不需硬體，命令列跑完整一局
-├── docs/
-│   └── index.html      # 純瀏覽器版（GitHub Pages 用），內嵌同一套規則
+├── index.html          # 純瀏覽器版（GitHub Pages 首頁），內嵌同一套規則
+├── .nojekyll           # 讓 GitHub Pages 直接出靜態檔
 └── tests/
     ├── test_engine.py  # Python 引擎：規則 / 目標 / 玩家 單元測試
     ├── test_web.mjs    # JS 引擎邏輯測試（與 Python 版一致）
@@ -117,12 +117,12 @@ curl -s localhost:8080/state
 
 ## 🚀 最推薦：GitHub Pages（iPhone 專用，不需電腦、不需服務端）
 
-判定邏輯已改寫成純瀏覽器 JavaScript（`docs/index.html`），可直接掛在 GitHub Pages，
+判定邏輯已改寫成純瀏覽器 JavaScript（根目錄 `index.html`），可直接掛在 GitHub Pages，
 **免電腦、免服務端、免額外註冊**。遊戲狀態存在手機瀏覽器（localStorage），碰卡就判定。
 
 ### 一次性設定
 1. **開啟 Pages**：GitHub repo → **Settings → Pages** → Source 選 **Deploy from a branch**
-   → Branch 選 `main`、資料夾選 **`/docs`** → Save。等一兩分鐘。
+   → Branch 選 `main`、資料夾選 **`/ (root)`** → Save。等一兩分鐘。
 2. 頁面網址會是 `https://<你的帳號>.github.io/nfc-boardgame/`。
 3. **iPhone 開設定頁**：Safari 打開 `https://<你的帳號>.github.io/nfc-boardgame/?view=setup`，
    會列出每張卡要寫入的網址（可一鍵複製）。

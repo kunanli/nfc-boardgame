@@ -1,9 +1,9 @@
-// 驗證 docs/index.html 內嵌的 JS 規則引擎，與 Python 版邏輯一致。
+// 驗證 index.html 內嵌的 JS 規則引擎，與 Python 版邏輯一致。
 // 執行： node tests/test_web.mjs
 import { readFileSync } from "node:fs";
 import assert from "node:assert";
 
-const html = readFileSync(new URL("../docs/index.html", import.meta.url), "utf8");
+const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const script = html.split("<script>")[1].split("</script>")[0];
 // 只取「畫面」之前的引擎部分（避開 DOM/localStorage 相依）
 const engineSrc = script.split("// 畫面")[0];
