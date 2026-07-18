@@ -1,0 +1,17 @@
+{
+  "_comment": "NFC 卡片資料庫：晶片只存 UID，卡片的意義全部在這裡定義。空白卡貼上晶片後，在此登錄一筆即可賦予身分。",
+  "cards": {
+    "04A1B2C3": { "type": "hero", "name": "戰士 · 阿爾", "hp": 30, "atk": 6, "clazz": "warrior" },
+    "04A1B2C4": { "type": "hero", "name": "遊俠 · 琳", "hp": 22, "atk": 8, "clazz": "ranger" },
+    "04A1B2C5": { "type": "hero", "name": "牧師 · 索恩", "hp": 24, "atk": 4, "clazz": "cleric", "heal": 5 },
+    "04A1B2C6": { "type": "hero", "name": "法師 · 薇拉", "hp": 18, "atk": 10, "clazz": "mage" },
+
+    "04D0E0F1": { "type": "monster", "name": "哥布林", "hp": 12, "atk": 3, "reward": 5, "boss": false },
+    "04D0E0F2": { "type": "monster", "name": "狼群", "hp": 20, "atk": 5, "reward": 8, "boss": false },
+    "04D0E0F3": { "type": "monster", "name": "石魔像", "hp": 34, "atk": 7, "reward": 12, "boss": false },
+    "04D0E0FF": { "type": "monster", "name": "巨龍 · 焰牙", "hp": 60, "atk": 12, "reward": 30, "boss": true },
+
+    "04C0FFEE1": { "type": "item", "name": "治療藥水", "effect": "heal", "amount": 10 },
+    "04C0FFEE2": { "type": "item", "name": "力量符文", "effect": "buff_atk", "amount": 3 }
+  }
+}
