@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NFC 桌遊・組隊冒險</title>
+<style>
+  :root{ color-scheme: dark; }
+  *{ box-sizing:border-box; }
+  body{ font-family:-apple-system,"PingFang TC","Noto Sans TC",sans-serif;
+        background:#12141c; color:#e8e8ee; margin:0; padding:18px;
+        max-width:640px; margin-inline:auto; }
+  h1{ font-size:22px; margin:8px 0 4px; }
+  h2{ font-size:15px; color:#9aa4c0; margin:22px 0 6px; font-weight:600; }
+  .msg{ font-size:19px; line-height:1.5; background:#1e2130; border-radius:14px;
+        padding:16px; margin:12px 0; }
+  .ok{ border-left:6px solid #46c68a; } .no{ border-left:6px solid #e5585b; }
+  .turn{ font-size:15px; color:#9aa4c0; margin:6px 0 14px; }
+  table{ width:100%; border-collapse:collapse; margin-top:6px; }
+  th,td{ text-align:left; padding:8px 10px; border-bottom:1px solid #2a2e40; font-size:15px; }
+  th{ color:#9aa4c0; font-weight:500; font-size:13px; }
+  .gold{ color:#f4c542; font-weight:700; } .crown{ color:#f4c542; }
+  .hpbar{ height:6px; background:#2a2e40; border-radius:4px; overflow:hidden; margin-top:4px; }
+  .hpfill{ height:100%; background:#46c68a; }
+  button, a.btn{ display:inline-block; background:#3355dd; color:#fff; border:none;
+        text-decoration:none; padding:11px 18px; border-radius:10px; margin:4px 6px 4px 0;
+        font-size:15px; cursor:pointer; }
+  a.btn.grey, button.grey{ background:#333850; }
+  code{ background:#0c0e15; padding:3px 7px; border-radius:6px; word-break:break-all;
+        font-size:13px; display:block; margin-top:6px; }
+  .card{ background:#1e2130; border-radius:10px; padding:12px; margin:8px 0; }
+  .small{ font-size:13px; color:#9aa4c0; }
+  .tag{ font-size:12px; color:#9aa4c0; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// 卡片資料庫：NFC UID -> 卡片定義（與 cards.json 一致；改這裡即改卡）
+// ---------------------------------------------------------------------------
+const CARDS = {
+  "04A1B2C3": { type:"hero", name:"戰士 · 阿爾", hp:30, atk:6, clazz:"warrior" },
+  "04A1B2C4": { type:"hero", name:"遊俠 · 琳",   hp:22, atk:8, clazz:"ranger" },
+  "04A1B2C5": { type:"hero", name:"牧師 · 索恩", hp:24, atk:4, clazz:"cleric" },
+  "04A1B2C6": { type:"hero", name:"法師 · 薇拉", hp:18, atk:10, clazz:"mage" },
+
+  "04D0E0F1": { type:"monster", name:"哥布林",       hp:12, atk:3,  reward:5,  boss:false },
+  "04D0E0F2": { type:"monster", name:"狼群",         hp:20, atk:5,  reward:8,  boss:false },
+  "04D0E0F3": { type:"monster", name:"石魔像",       hp:34, atk:7,  reward:12, boss:false },
+  "04D0E0FF": { type:"monster", name:"巨龍 · 焰牙",  hp:60, atk:12, reward:30, boss:true },
+
+  "04C0FFEE1": { type:"item", name:"治療藥水", effect:"heal",     amount:10 },
+  "04C0FFEE2": { type:"item", name:"力量符文", effect:"buff_atk", amount:3 },
+};
+
+const KO_PENALTY = 3;
+const MIN_PLAYERS = 1;
+const STORE_KEY = "nfc_boardgame_state_v1";
+
+// ---------------------------------------------------------------------------
+// 狀態管理
+// ---------------------------------------------------------------------------
+function fresh(){
+  return { phase:"lobby", players:[], turnIndex:0, current:null,
+           slain:[], winner:null, log:[] };
+}
+function load(){
+  try { const s = JSON.parse(localStorage.getItem(STORE_KEY)); return s || fresh(); }
+  catch(e){ return fresh(); }
+}
+function save(s){ localStorage.setItem(STORE_KEY, JSON.stringify(s)); }
+
+// ---------------------------------------------------------------------------
+// 規則引擎（對應 game/engine.py 的競爭模式「搶尾刀奪寶」）
+// ---------------------------------------------------------------------------
+function currentPlayer(s){ return s.players[s.turnIndex]; }
+function advanceTurn(s){ if(s.players.length) s.turnIndex = (s.turnIndex+1) % s.players.length; }
+
+function leaderboard(s){
+  return s.players.slice().sort((a,b)=>
+    (b.gold - a.gold) || (a.kos - b.kos) || (a.seat - b.seat)
+  ).map(p=>({ name:p.name, gold:p.gold, kos:p.kos, seat:p.seat }));
+}
+
+function tap(s, uid){
+  const c = CARDS[uid];
+  if(!c) return { ok:false, event:"unknown_card",
+                  message:`未登錄的卡片 ${uid}（空白卡？請先在卡片資料裡登錄）` };
+
+  if(s.phase === "lobby"){
+    if(c.type === "hero") return join(s, uid, c);
+    return { ok:false, event:"wrong_phase", message:"組隊階段只能刷英雄卡加入。" };
+  }
+  if(s.phase === "adventure"){
+    if(c.type === "monster") return reveal(s, uid, c);
+    if(c.type === "hero")    return attack(s, uid);
+    if(c.type === "item")    return useItem(s, c);
+  }
+  return { ok:false, event:"game_over", message:"遊戲已結束，比比金幣看誰贏了。" };
+}
+
+function join(s, uid, c){
+  if(s.players.some(p=>p.uid===uid))
+    return { ok:false, event:"duplicate", message:"這張英雄卡已在隊伍中。" };
+  const p = { uid, name:c.name, seat:s.players.length, gold:0, kos:0,
+              hp:c.hp, maxHp:c.hp, atk:c.atk, clazz:c.clazz };
+  s.players.push(p);
+  return { ok:true, event:"player_joined",
+           message:`${c.name} 加入（第 ${s.players.length} 位）` };
+}
+
+function startAdventure(s){
+  if(s.phase !== "lobby")
+    return { ok:false, event:"wrong_phase", message:"現在不是組隊階段。" };
+  if(s.players.length < MIN_PLAYERS)
+    return { ok:false, event:"not_enough_players", message:`至少需要 ${MIN_PLAYERS} 位玩家。` };
+  s.phase = "adventure"; s.turnIndex = 0;
+  return { ok:true, event:"adventure_started",
+           message:`冒險開始！輪到 ${currentPlayer(s).name}，翻一張怪物卡開打。` };
+}
+
+function reveal(s, uid, c){
+  if(s.current)
+    return { ok:false, event:"monster_present",
+             message:`桌上還有 ${s.current.name}（HP ${s.current.hp}），先解決它。` };
+  s.current = { uid, name:c.name, hp:c.hp, maxHp:c.hp, atk:c.atk,
+                reward:c.reward, boss:c.boss };
+  return { ok:true, event:"monster_revealed",
+           message:`出現了 ${c.name}！HP ${c.hp}、攻擊 ${c.atk}、賞金 ${c.reward}。輪到 ${currentPlayer(s).name} 出手。` };
+}
+
+function attack(s, uid){
+  const p = s.players.find(x=>x.uid===uid);
+  if(!p) return { ok:false, event:"not_in_party", message:"這張英雄卡沒有加入隊伍。" };
+  if(!s.current) return { ok:false, event:"no_monster", message:"桌面上沒有怪物，先翻一張怪物卡。" };
+  if(p.seat !== s.turnIndex)
+    return { ok:false, event:"not_your_turn",
+             message:`還沒輪到你，現在是 ${currentPlayer(s).name} 的回合。` };
+
+  const m = s.current;
+  const dmg = p.atk;
+  m.hp = Math.max(0, m.hp - dmg);
+
+  // 尾刀！獨得賞金
+  if(m.hp <= 0){
+    p.gold += m.reward;
+    s.slain.push({ monster:m.name, killer:p.name });
+    const wasBoss = m.boss;
+    s.current = null;
+    if(wasBoss){
+      s.phase = "over";
+      s.winner = leaderboard(s)[0].name;
+      return { ok:true, event:"boss_defeated",
+               message:`${p.name} 對最終王 ${m.name} 補刀擊殺！金幣結算：${s.winner} 獲勝。` };
+    }
+    advanceTurn(s);
+    return { ok:true, event:"last_hit",
+             message:`${p.name} 補刀擊殺 ${m.name}，獨得 ${m.reward} 金幣（共 ${p.gold}）！輪到 ${currentPlayer(s).name}。` };
+  }
+
+  // 沒打死：怪物反擊出手者
+  p.hp = Math.max(0, p.hp - m.atk);
+  let msg = `${p.name} 砍出 ${dmg} 傷害（${m.name} 剩 ${m.hp}），被反擊 ${m.atk}（剩 HP ${p.hp}）。`;
+  if(p.hp <= 0){
+    const lost = Math.min(KO_PENALTY, p.gold);
+    p.hp = p.maxHp; p.gold -= lost; p.kos += 1;
+    msg = `${p.name} 被 ${m.name} 打倒！撤退回城滿血復活，損失 ${lost} 金幣（剩 ${p.gold}）。`;
+  }
+  advanceTurn(s);
+  return { ok:true, event:"attack", message: msg + ` 輪到 ${currentPlayer(s).name}。` };
+}
+
+function useItem(s, c){
+  const p = currentPlayer(s);
+  if(c.effect === "heal"){
+    const before = p.hp; p.hp = Math.min(p.maxHp, p.hp + c.amount);
+    advanceTurn(s);
+    return { ok:true, event:"item_used",
+             message:`${p.name} 使用 ${c.name}，回復 ${p.hp-before} 點（HP ${p.hp}）。輪到 ${currentPlayer(s).name}。` };
+  }
+  if(c.effect === "buff_atk"){
+    p.atk += c.amount; advanceTurn(s);
+    return { ok:true, event:"item_used",
+             message:`${p.name} 使用 ${c.name}，攻擊力永久 +${c.amount}（現為 ${p.atk}）。輪到 ${currentPlayer(s).name}。` };
+  }
+  return { ok:false, event:"unknown_item", message:`未知道具效果：${c.effect}` };
+}
+
+// ---------------------------------------------------------------------------
+// 畫面
+// ---------------------------------------------------------------------------
+function esc(x){ return String(x).replace(/[&<>]/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;" }[m])); }
+
+function leaderboardHTML(s){
+  const board = leaderboard(s);
+  if(!board.length) return "<p class='turn'>還沒有玩家加入。</p>";
+  let rows = "";
+  board.forEach((r,i)=>{
+    const crown = r.name===s.winner ? " 👑" : "";
+    rows += `<tr><td>${i+1}</td><td>${esc(r.name)}${crown}</td>`
+          + `<td class='gold'>${r.gold}</td><td>${r.kos}</td></tr>`;
+  });
+  return `<table><tr><th>#</th><th>玩家</th><th>金幣</th><th>撤退</th></tr>${rows}</table>`;
+}
+
+function partyHTML(s){
+  if(!s.players.length) return "";
+  let rows = "";
+  s.players.forEach(p=>{
+    const pct = Math.round(100*p.hp/p.maxHp);
+    const isTurn = s.phase==="adventure" && p.seat===s.turnIndex;
+    rows += `<div class='card'><b>${esc(p.name)}</b> ${isTurn?"<span class='tag'>← 輪到他</span>":""}`
+          + `<span class='tag' style='float:right'>攻擊 ${p.atk}・金幣 <span class='gold'>${p.gold}</span></span>`
+          + `<div class='small'>HP ${p.hp}/${p.maxHp}</div>`
+          + `<div class='hpbar'><div class='hpfill' style='width:${pct}%'></div></div></div>`;
+  });
+  return rows;
+}
+
+function baseURL(){ return location.origin + location.pathname; }
+
+function setupHTML(){
+  let b = `<div class='msg'>用 iPhone 的 <b>「捷徑」</b> 或 <b>NFC Tools</b> App，把下面每一條網址寫進對應那張卡的 NFC 貼片（寫成「URL / 網址」類型）。寫好後手機碰卡就會自動開。</div>`;
+  const kinds = { hero:"英雄卡", monster:"怪物卡", item:"道具卡" };
+  for(const uid in CARDS){
+    const c = CARDS[uid];
+    const url = `${baseURL()}?tap=${uid}`;
+    b += `<div class='card'><b>${esc(c.name)}</b> <span class='tag'>${kinds[c.type]||c.type}</span>`
+       + `<code>${esc(url)}</code>`
+       + `<button class='grey' onclick="copyText('${url}')">複製網址</button></div>`;
+  }
+  b += `<div style='margin-top:12px'><a class='btn' href='${baseURL()}'>← 回首頁</a></div>`;
+  return b;
+}
+
+function copyText(t){
+  navigator.clipboard?.writeText(t).then(
+    ()=>toast("已複製"), ()=>toast("複製失敗，長按網址手動複製")
+  );
+}
+function toast(msg){
+  const d = document.createElement("div");
+  d.textContent = msg;
+  d.style.cssText = "position:fixed;left:50%;bottom:40px;transform:translateX(-50%);"
+    + "background:#333850;color:#fff;padding:10px 18px;border-radius:20px;z-index:9;font-size:14px";
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(), 1400);
+}
+
+function phaseZh(p){ return { lobby:"組隊中", adventure:"冒險中", over:"遊戲結束" }[p]; }
+
+function render(s, result){
+  const app = document.getElementById("app");
+  const params = new URLSearchParams(location.search);
+  if(params.get("view") === "setup"){ app.innerHTML = setupHTML(); return; }
+
+  let b = "";
+  // 剛剛刷卡的判定結果橫幅
+  if(result){
+    const cls = result.ok ? "ok" : "no";
+    const mark = result.ok ? "✓" : "✗";
+    b += `<div class='msg ${cls}'>${mark} ${esc(result.message)}</div>`;
+  }
+
+  b += `<h1>⚔️ 組隊冒險・搶尾刀奪寶</h1>`;
+  b += `<div class='turn'>階段：<b>${phaseZh(s.phase)}</b>`;
+  if(s.winner) b += ` ・ 🏆 冠軍：<b class='crown'>${esc(s.winner)}</b>`;
+  else if(s.phase==="adventure" && s.players.length) b += ` ・ 輪到 <b>${esc(currentPlayer(s).name)}</b>`;
+  b += `</div>`;
+
+  if(s.current){
+    const m = s.current; const pct = Math.round(100*m.hp/m.maxHp);
+    b += `<div class='card'><b>👹 ${esc(m.name)}</b>${m.boss?" <span class='tag'>最終王</span>":""}`
+       + `<span class='tag' style='float:right'>攻擊 ${m.atk}・賞金 ${m.reward}</span>`
+       + `<div class='small'>HP ${m.hp}/${m.maxHp}</div>`
+       + `<div class='hpbar'><div class='hpfill' style='width:${pct}%;background:#e5585b'></div></div></div>`;
+  }
+
+  // 操作按鈕
+  b += `<div style='margin:14px 0'>`;
+  if(s.phase==="lobby")
+    b += `<a class='btn' href='${baseURL()}?start=1'>開始冒險</a>`;
+  b += `<a class='btn grey' href='${baseURL()}?view=setup'>卡片設定</a>`
+     + `<button class='grey' onclick="if(confirm('確定重開一局？')){resetGame()}">重開一局</button></div>`;
+
+  b += `<h2>排行榜</h2>` + leaderboardHTML(s);
+  if(s.players.length){ b += `<h2>隊伍狀態</h2>` + partyHTML(s); }
+  if(s.slain.length){
+    b += `<h2>擊殺紀錄</h2><table><tr><th>怪物</th><th>尾刀者</th></tr>`;
+    s.slain.forEach(x=> b += `<tr><td>${esc(x.monster)}</td><td>${esc(x.killer)}</td></tr>`);
+    b += `</table>`;
+  }
+  app.innerHTML = b;
+}
+
+function resetGame(){
+  save(fresh());
+  location.href = baseURL();
+}
+
+// ---------------------------------------------------------------------------
+// 進入點：讀網址參數 -> 套用 -> 存檔 -> 去掉參數（避免重整重複觸發）-> 畫面
+// ---------------------------------------------------------------------------
+(function main(){
+  const s = load();
+  const params = new URLSearchParams(location.search);
+  let result = null;
+
+  if(params.has("tap"))        result = tap(s, params.get("tap").toUpperCase());
+  else if(params.has("start")) result = startAdventure(s);
+  else if(params.has("reset")){ save(fresh()); history.replaceState({}, "", baseURL()); render(load()); return; }
+
+  if(result){
+    save(s);
+    // 保留 view 參數以外，清掉 tap/start，避免手動重整又刷一次
+    if(!params.has("view")) history.replaceState({}, "", baseURL());
+  }
+  render(s, result);
+})();
+</script>
+</body>
+</html>

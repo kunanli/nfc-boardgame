@@ -54,8 +54,12 @@ nfc-boardgame/
 │   └── engine.py       # 規則引擎 / 裁判，單一入口 Game.tap(uid)
 ├── server.py           # 服務端：純標準庫 HTTP，模擬讀卡機送 UID
 ├── demo.py             # 不需硬體，命令列跑完整一局
+├── docs/
+│   └── index.html      # 純瀏覽器版（GitHub Pages 用），內嵌同一套規則
 └── tests/
-    └── test_engine.py  # 規則 / 目標 / 玩家 的單元測試
+    ├── test_engine.py  # Python 引擎：規則 / 目標 / 玩家 單元測試
+    ├── test_web.mjs    # JS 引擎邏輯測試（與 Python 版一致）
+    └── test_browser.mjs# 真瀏覽器端對端：模擬碰卡開網址
 ```
 
 零第三方依賴，Python 3.8+ 即可。
@@ -111,7 +115,30 @@ curl -s localhost:8080/state
 
 要新增卡片：把新晶片的 UID 加進 `cards.json` 就好，不用改程式。
 
-## 用 iPhone 實際玩（不用寫任何 App）
+## 🚀 最推薦：GitHub Pages（iPhone 專用，不需電腦、不需服務端）
+
+判定邏輯已改寫成純瀏覽器 JavaScript（`docs/index.html`），可直接掛在 GitHub Pages，
+**免電腦、免服務端、免額外註冊**。遊戲狀態存在手機瀏覽器（localStorage），碰卡就判定。
+
+### 一次性設定
+1. **開啟 Pages**：GitHub repo → **Settings → Pages** → Source 選 **Deploy from a branch**
+   → Branch 選 `main`、資料夾選 **`/docs`** → Save。等一兩分鐘。
+2. 頁面網址會是 `https://<你的帳號>.github.io/nfc-boardgame/`。
+3. **iPhone 開設定頁**：Safari 打開 `https://<你的帳號>.github.io/nfc-boardgame/?view=setup`，
+   會列出每張卡要寫入的網址（可一鍵複製）。
+4. **寫卡**：App Store 免費下載 **NFC Tools** → Write → Add a record → **URL/URI** →
+   貼上某張卡的網址 → Write，iPhone 靠上那張 NTAG213 貼片。每張卡寫一次。
+
+### 開始玩
+- iPhone 碰**英雄卡** → 跳通知點開 → 加入隊伍（每人一張）。
+- 網頁上按「**開始冒險**」。
+- 碰**怪物卡**翻出怪物 → 輪到的人碰**自己的英雄卡**出手，誰補刀誰奪寶。
+- 最終王（巨龍）倒下時，金幣最多的人獲勝。
+
+> NTAG213（144 byte、13.56MHz、ISO 14443A）存一個網址綽綽有餘，iPhone 17 會自動感應開網址。
+> 這支手機當「公用讀卡機」輪流傳著碰即可；狀態存在這支手機的瀏覽器裡。
+
+## 用 iPhone 實際玩（自己電腦當服務端，Python 版）
 
 原理：**把一個網址寫進每張卡的 NFC 貼片**，iPhone 碰到就自動開網址 → 服務端判定 → 顯示結果。
 卡的「數值」還是在服務端，貼片裡只放 `.../tap?uid=XXXX`。
